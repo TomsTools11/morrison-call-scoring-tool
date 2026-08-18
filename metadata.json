@@ -1,0 +1,6 @@
+{
+  "name": "Morrison Call Scoring",
+  "description": "Call scoring tool for Mike Morrison Insurance Agency",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
