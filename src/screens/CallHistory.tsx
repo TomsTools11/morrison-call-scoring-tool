@@ -1,0 +1,153 @@
+import { BarChart3 } from "lucide-react";
+import { BandPill } from "../components/Pills";
+import { formatCallDate, humanize } from "../lib/format";
+import type { HistoryEntry } from "../types";
+
+const GRID = "1fr 1.7fr 1fr 1.3fr 70px 120px";
+
+interface CallHistoryProps {
+  entries: HistoryEntry[];
+  onOpen: (entry: HistoryEntry) => void;
+  onScoreNewCall: () => void;
+}
+
+export function CallHistory({ entries, onOpen, onScoreNewCall }: CallHistoryProps) {
+  return (
+    <div data-screen-label="Call history" style={{ maxWidth: 1100 }}>
+      <div
+        className="goal-card"
+        style={{
+          background: "#FFFFFF",
+          border: "1px solid #E3E8EF",
+          borderRadius: 12,
+          overflow: "hidden",
+          boxShadow: "0 2px 6px rgba(0,23,45,0.06)",
+        }}
+      >
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: GRID,
+            gap: 16,
+            padding: "14px 24px",
+            background: "#F8FAFC",
+            whiteSpace: "nowrap",
+            borderBottom: "1px solid #E3E8EF",
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            color: "#6A7482",
+          }}
+        >
+          <span>Producer</span>
+          <span>Call</span>
+          <span>Lead type</span>
+          <span>Outcome</span>
+          <span style={{ textAlign: "right" }}>Score</span>
+          <span style={{ textAlign: "right" }}>Band</span>
+        </div>
+
+        {entries.length === 0 ? (
+          <EmptyHistory onScoreNewCall={onScoreNewCall} />
+        ) : (
+          entries.map((entry) => {
+            const { meta, overallScore, gradeBand } = entry.scorecard;
+            const leadType = meta.call_type?.split("/")[1]?.trim() || "—";
+            return (
+              <button
+                key={entry.id}
+                className="goal-hover-row"
+                onClick={() => onOpen(entry)}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: GRID,
+                  gap: 16,
+                  alignItems: "center",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "16px 24px",
+                  background: "none",
+                  border: 0,
+                  borderBottom: "1px solid #F1F1F1",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span style={{ fontSize: 15, fontWeight: 600, color: "#0F1B2D" }}>
+                  {meta.producer || "Unknown"}
+                </span>
+                <span style={{ fontSize: 14, color: "#6A7482" }}>{formatCallDate(meta.date)}</span>
+                <span style={{ fontSize: 14, color: "#2B3442" }}>{humanize(leadType)}</span>
+                <span style={{ fontSize: 14, color: "#2B3442" }}>{humanize(meta.outcome)}</span>
+                <span
+                  style={{
+                    fontSize: 20,
+                    fontWeight: 900,
+                    letterSpacing: "-0.01em",
+                    color: "#0F1B2D",
+                    textAlign: "right",
+                  }}
+                >
+                  {Math.round(overallScore)}
+                </span>
+                <span style={{ justifySelf: "end" }}>
+                  <BandPill band={gradeBand} bordered={false} />
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
+      <div style={{ marginTop: 16, fontSize: 13, color: "#6A7482" }}>
+        Scores are calculated against the Morrison rubric. History is stored in this browser only.
+      </div>
+    </div>
+  );
+}
+
+function EmptyHistory({ onScoreNewCall }: { onScoreNewCall: () => void }) {
+  return (
+    <div style={{ padding: "64px 24px", textAlign: "center" }}>
+      <div
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: "50%",
+          background: "#F1F7FE",
+          color: "#057BE5",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 16,
+        }}
+      >
+        <BarChart3 size={20} strokeWidth={2} />
+      </div>
+      <h3 style={{ fontSize: 17, fontWeight: 800, color: "#0F1B2D", margin: "0 0 6px" }}>
+        No calls scored yet
+      </h3>
+      <p style={{ margin: "0 0 20px", fontSize: 14, color: "#6A7482" }}>
+        Score your first call and it will show up here.
+      </p>
+      <button
+        className="goal-hover-primary"
+        onClick={onScoreNewCall}
+        style={{
+          padding: "10px 18px",
+          background: "#057BE5",
+          color: "#FFFFFF",
+          border: 0,
+          borderRadius: 4,
+          fontSize: 14,
+          fontWeight: 600,
+          cursor: "pointer",
+          fontFamily: "inherit",
+        }}
+      >
+        Score a new call
+      </button>
+    </div>
+  );
+}
