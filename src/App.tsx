@@ -63,8 +63,12 @@ export default function App() {
       } else {
         setSignInError("Invalid passcode.");
       }
-    } catch {
-      setSignInError("Network error. Please try again.");
+    } catch (error) {
+      setSignInError(
+        error instanceof ApiError
+          ? error.message
+          : "Network error. Please try again.",
+      );
     } finally {
       setSigningIn(false);
     }

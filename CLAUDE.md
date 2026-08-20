@@ -127,6 +127,18 @@ The `@` path alias resolves to the **repo root**, not `src/` (in both
 imports instead, because Vercel's function bundler traces relative paths rather
 than tsconfig aliases.
 
+**Relative imports in `api/` and `lib/` must carry an explicit `.js` extension.**
+`package.json` sets `"type": "module"`, so Vercel ships those functions as ESM,
+and Node's ESM loader will not resolve `../lib/auth` — only `../lib/auth.js`
+(TypeScript maps the `.js` back to the `.ts` source). This bit once already: it
+cannot reproduce under `vite dev` or `tsx`, which both resolve extensionless
+specifiers, so it only appeared as `ERR_MODULE_NOT_FOUND` and a 500 in
+production. `tsconfig.server.json` uses `nodenext` resolution to turn it into a
+compile error, and `npm run build` runs that check before Vite so a bad import
+fails the deploy instead of reaching production. Two tsconfigs exist for this
+reason: the root one covers `src/` under bundler resolution, the server one
+covers `api/` and `lib/`.
+
 ## Constraints
 
 - Do not modify the `DISABLE_HMR` handling in `vite.config.ts` — file watching is

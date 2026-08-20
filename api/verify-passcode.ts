@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { isValidPasscode } from "../lib/auth";
-import { rejectWrongMethod } from "../lib/http";
+import { isValidPasscode } from "../lib/auth.js";
+import { rejectWrongMethod } from "../lib/http.js";
 
 /** Gates the UI only. Every other route validates the passcode itself. */
 export default function handler(req: VercelRequest, res: VercelResponse) {

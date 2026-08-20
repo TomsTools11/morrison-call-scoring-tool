@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { rejectUnauthorized } from "../lib/auth";
-import { rejectWrongMethod, requireEnv } from "../lib/http";
-import { createGeminiClient } from "../lib/gemini";
-import { runContextPass } from "../lib/scoring";
+import { rejectUnauthorized } from "../lib/auth.js";
+import { rejectWrongMethod, requireEnv } from "../lib/http.js";
+import { createGeminiClient } from "../lib/gemini.js";
+import { runContextPass } from "../lib/scoring.js";
 
 /**
  * Pass 1 of the pipeline. Split out from scoring so each Gemini call gets

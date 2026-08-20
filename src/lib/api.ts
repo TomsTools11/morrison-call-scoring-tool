@@ -24,13 +24,24 @@ async function postJson(path: string, passcode: string, body: unknown): Promise<
   return data;
 }
 
+/**
+ * Resolves false only when the passcode is genuinely wrong. Anything else —
+ * a crashed function, a gateway error — throws, so a broken deployment cannot
+ * masquerade as a bad passcode.
+ */
 export async function verifyPasscode(passcode: string): Promise<boolean> {
   const res = await fetch("/api/verify-passcode", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ passcode }),
   });
-  return res.ok;
+  if (res.ok) return true;
+  if (res.status === 401) return false;
+  throw new ApiError(
+    res.status >= 500
+      ? `The server could not check the passcode (error ${res.status}). It may be misconfigured.`
+      : `Sign-in failed with error ${res.status}.`,
+  );
 }
 
 /**

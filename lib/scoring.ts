@@ -1,5 +1,5 @@
 import { Type } from "@google/genai";
-import { generateContentWithRetry } from "./gemini";
+import { generateContentWithRetry } from "./gemini.js";
 
 /**
  * `maxOutputTokens` is a combined budget for thinking *and* output on this

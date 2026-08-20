@@ -1,13 +1,13 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { rejectUnauthorized } from "../lib/auth";
-import { rejectWrongMethod, requireEnv } from "../lib/http";
-import { createGeminiClient } from "../lib/gemini";
+import { rejectUnauthorized } from "../lib/auth.js";
+import { rejectWrongMethod, requireEnv } from "../lib/http.js";
+import { createGeminiClient } from "../lib/gemini.js";
 import {
   recomputeScores,
   runScoringPass,
   ScoringOutputError,
   type CallContext,
-} from "../lib/scoring";
+} from "../lib/scoring.js";
 
 /**
  * Pass 2 of the pipeline. The model grades each criterion; its own numeric
