@@ -46,7 +46,10 @@ export interface ScorecardResponse {
   facts?: CallFacts;
   /** Kept so a reviewed scorecard can be re-scored offline by the eval harness. */
   measures?: TranscriptMeasures;
+  /** Findings about the call itself. */
   red_flags?: string[];
+  /** What the scoring pipeline noticed about its own run — not findings about the call. */
+  diagnostics?: string[];
   error?: string;
   transcript?: string;
 }

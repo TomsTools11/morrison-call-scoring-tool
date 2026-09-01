@@ -8,6 +8,7 @@ import {
   RUBRIC,
   sectionWeights,
   SECTION_ORDER,
+  verifyTimestamps,
 } from "../lib/rubric.js";
 import { facts, FULL_CALL, gradeAll, idsIn, score, scopeOf, SHORT_REFUSAL } from "./helpers.js";
 
@@ -325,4 +326,69 @@ test("the ten-minute criterion is measured, not asked of the model", () => {
     measureTranscript("Agent: hello there\nCustomer: hi"),
   ).criteria.find((c) => c.id === "close.over_ten_min")!;
   assert.equal(unstamped.scope, "not_applicable");
+});
+
+/* ------------------------------------------------------------------ *
+ * Timestamps on a miss — where the step should have happened
+ * ------------------------------------------------------------------ */
+
+test("a missed criterion keeps the moment the window was open", () => {
+  const { sections } = score(FULL_CALL, presentedBundle, [
+    {
+      id: "close.attempt",
+      status: "missed",
+      timestamp: "00:15:20",
+      evidence: "Let me think about it.",
+      note: "The close should have followed here.",
+    },
+  ]);
+  const attempt = sections.flatMap((s) => s.criteria).find((c) => c.id === "close.attempt")!;
+  assert.equal(attempt.status, "missed");
+  assert.equal(attempt.timestamp, "00:15:20");
+  assert.equal(attempt.evidence, "Let me think about it.");
+});
+
+test("a timestamp outside the call is dropped rather than shown", () => {
+  // The model is being asked where something SHOULD have happened, with no
+  // quote anchoring the answer — an invented but plausible time is the obvious
+  // failure mode, and a reviewer who scrubs to it loses trust in all of them.
+  const measures = measureTranscript(FULL_CALL);
+  const { sections } = score(FULL_CALL, presentedBundle, [
+    { id: "close.attempt", status: "missed", timestamp: "01:47:00" },
+    { id: "close.referrals", status: "missed", timestamp: "not a time" },
+    { id: "close.payment_ask", status: "missed", timestamp: "00:15:20" },
+  ]);
+  const at = (id: string) => sections.flatMap((s) => s.criteria).find((c) => c.id === id)!;
+
+  const diagnostics = verifyTimestamps(sections, measures);
+  assert.equal(at("close.attempt").timestamp, "", "beyond the end of the call");
+  assert.equal(at("close.referrals").timestamp, "", "not a clock at all");
+  assert.equal(at("close.payment_ask").timestamp, "00:15:20", "a real moment survives");
+  assert.ok(diagnostics.includes("invalid_timestamp:close.attempt"));
+  assert.ok(diagnostics.includes("invalid_timestamp:close.referrals"));
+});
+
+test("every timestamp is dropped when the transcript has no clock", () => {
+  const plain = "Agent: Hello there.\nCustomer: Hi.";
+  const { sections } = score(plain, presentedBundle, [
+    { id: "close.attempt", status: "missed", timestamp: "00:04:00" },
+  ]);
+  verifyTimestamps(sections, measureTranscript(plain));
+  const attempt = sections.flatMap((s) => s.criteria).find((c) => c.id === "close.attempt")!;
+  assert.equal(attempt.timestamp, "");
+});
+
+test("the call's clock bounds are measured, not assumed to start at zero", () => {
+  const late = ["[00:10:00] Agent: Hello.", "[00:12:30] Customer: Hi."].join("\n");
+  const m = measureTranscript(late);
+  assert.equal(m.firstStampSeconds, 600);
+  assert.equal(m.lastStampSeconds, 750);
+  assert.equal(m.elapsedSeconds, 150);
+
+  // A stamp before the call started is as invalid as one after it ends.
+  const { sections } = score(late, presentedBundle, [
+    { id: "close.attempt", status: "missed", timestamp: "00:02:00" },
+  ]);
+  verifyTimestamps(sections, m);
+  assert.equal(sections.flatMap((s) => s.criteria).find((c) => c.id === "close.attempt")!.timestamp, "");
 });

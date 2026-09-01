@@ -10,6 +10,7 @@ import {
   measureTranscript,
   recomputeScores,
   verifyEvidence,
+  verifyTimestamps,
   type CallFacts,
 } from "../lib/rubric.js";
 
@@ -78,6 +79,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { sections, flags } = assembleScorecard(plan, raw.verdicts);
     const evidenceFlags = verifyEvidence(sections, transcript);
+    const timestampFlags = verifyTimestamps(sections, measures);
     const conflictFlags = crossCheckContext(sections, plan.facts);
     const totals = recomputeScores(sections, plan.amnesty);
 
@@ -98,7 +100,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       amnesty: plan.amnesty,
       strengths: raw.strengths,
       priorities: raw.priorities,
-      red_flags: [...raw.red_flags, ...flags, ...evidenceFlags, ...conflictFlags, ...totals.flags],
+      red_flags: [...raw.red_flags, ...totals.flags],
+      diagnostics: [...flags, ...evidenceFlags, ...timestampFlags, ...conflictFlags],
       metrics: {
         duration: formatDuration(measures.elapsedSeconds),
         talkShare:

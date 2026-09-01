@@ -78,6 +78,32 @@ export function humanize(value: string | undefined): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+const DIAGNOSTIC_TEXT: Record<string, (name: string) => string> = {
+  ungraded: (n) => `No verdict came back for “${n}” — it was scored as a miss.`,
+  na_demoted: (n) =>
+    `“${n}” was marked not applicable, but this call reached the stage where it applies — scored as a miss.`,
+  unverified_evidence: (n) => `The quote for “${n}” was not found verbatim in the transcript.`,
+  invalid_timestamp: (n) => `A timestamp for “${n}” was not a real moment in this call and was dropped.`,
+  context_conflict: (detail) => `Context conflict — ${detail}.`,
+};
+
+/**
+ * Diagnostics are `prefix:subject` strings. `resolveName` turns a criterion id
+ * into its human name; anything else falls back to the raw subject.
+ */
+export function describeDiagnostic(
+  flag: string,
+  resolveName: (id: string) => string | undefined,
+): string {
+  const split = flag.indexOf(":");
+  if (split === -1) return humanize(flag);
+  const prefix = flag.slice(0, split);
+  const subject = flag.slice(split + 1);
+  const render = DIAGNOSTIC_TEXT[prefix];
+  if (!render) return humanize(flag);
+  return render(prefix === "context_conflict" ? subject : (resolveName(subject) ?? subject));
+}
+
 export function pctWidth(score: number, maxScore: number): number {
   return maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
 }
