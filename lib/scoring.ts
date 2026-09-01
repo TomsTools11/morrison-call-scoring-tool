@@ -111,9 +111,14 @@ const scoringResponseSchema = {
           status: { type: Type.STRING, enum: STATUS_VALUES },
           evidence: {
             type: Type.STRING,
-            description: "A verbatim quote from the transcript. Required for met and partial.",
+            description:
+              "A verbatim quote from the transcript. For met/partial, the line that shows the behaviour. For missed, the line that opened the window where it should have happened.",
           },
-          timestamp: { type: Type.STRING, description: "HH:MM:SS from the transcript, or empty." },
+          timestamp: {
+            type: Type.STRING,
+            description:
+              "HH:MM:SS copied from the transcript. For met/partial, when it happened. For missed, when it should have happened. Empty if the transcript has no timestamps or there is no single moment.",
+          },
           note: { type: Type.STRING, description: "One short sentence of coaching context." },
         },
         required: ["id", "status"],
@@ -317,6 +322,19 @@ HOW TO GRADE. For each criterion below return exactly one status:
   partial  the producer attempted it but left out a required part - the step happened in the wrong
            order, half the script was used, or the ask was made once and dropped. Evidence required.
   missed   the producer had the opportunity on this call and did not do it.
+
+TIMESTAMPS ON A MISS. This is the most useful part of the scorecard for coaching, so take it seriously.
+For every "missed" verdict, point at the moment in the call where the step SHOULD have been run:
+  - timestamp: the HH:MM:SS of that moment, copied from a stamp that actually appears in the transcript.
+  - evidence: the short verbatim line that opened the window - usually what the customer had just said,
+    or the producer's own line immediately before the gap. It is the cue, not proof of the behaviour.
+  - note: one sentence on what should have followed that line.
+So a missed liability talk path might point at the customer saying "I think I have full coverage", and a
+missed close might point at the moment the price landed and the conversation moved on.
+Leave both empty when the criterion is about the call as a whole rather than one moment - rapport,
+engagement - or when the transcript carries no timestamps. Never invent a time that is not in the
+transcript; an empty timestamp is far better than a plausible wrong one.
+
 Do NOT return "na". Every criterion listed below has already been checked against this call's context
 and does apply to it. If you believe one does not apply, return "missed" and say why in the note.
 
@@ -325,8 +343,9 @@ do not credit a behavior because the producer was clearly capable of it. Where a
 specific script step, the absence of that step is a miss even if the producer achieved the same outcome
 another way - Mike is grading the system, not just the result.
 
-Evidence must be copied character-for-character out of the transcript so it can be verified. Prefer a
-short quote of one or two sentences. Notes should be one short sentence.
+Every quote - whether it evidences a behaviour or marks the window for a missed one - must be copied
+character-for-character out of the transcript so it can be verified. Prefer a short quote of one or two
+sentences. Notes should be one short sentence.
 
 CRITERIA TO GRADE (${inScope.length} of them - return one verdict per id, all of them):
 ${buildRubricBlock(plan)}

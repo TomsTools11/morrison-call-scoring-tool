@@ -2,7 +2,8 @@ import { AlertTriangle, Check } from "lucide-react";
 import { BandPill, OutcomePill } from "../components/Pills";
 import { ScoreRing } from "../components/ScoreRing";
 import { ScorecardDetail } from "../components/ScorecardDetail";
-import { formatCallDate, humanize, parseTalkShare } from "../lib/format";
+import { describeDiagnostic, formatCallDate, humanize, parseTalkShare } from "../lib/format";
+import { RUBRIC_BY_ID } from "@/lib/rubric";
 import type { CriterionStatus, ScorecardResponse } from "../types";
 
 const card: React.CSSProperties = {
@@ -345,6 +346,31 @@ export function Scorecard({ data, openSections, onToggleSection, onOverride }: S
         onToggleSection={onToggleSection}
         onOverride={onOverride}
       />
+
+      {data.diagnostics && data.diagnostics.length > 0 && (
+        <div
+          className="goal-card"
+          style={{ ...card, boxShadow: "none", background: "#F8FAFC", padding: "16px 24px" }}
+        >
+          <h3
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "#6A7482",
+              margin: "0 0 8px",
+            }}
+          >
+            Scoring notes
+          </h3>
+          <ul style={{ margin: 0, paddingLeft: 18, color: "#6A7482", fontSize: 13, lineHeight: 1.7 }}>
+            {data.diagnostics.map((flag, index) => (
+              <li key={index}>{describeDiagnostic(flag, (id) => RUBRIC_BY_ID[id]?.name)}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0 0" }}>
         <img

@@ -139,6 +139,15 @@ and section names cannot drift out of the weight map. An in-scope criterion the
 model omits scores as a miss; an in-scope criterion it marks `na` is demoted to
 a miss and flagged. Both would otherwise raise the score.
 
+**`red_flags` and `diagnostics` are different things.** `red_flags` are
+findings about the *call* — a coverage misstatement, a close that was reached
+and not attempted — and render in a red banner. `diagnostics` are what the
+scoring pipeline noticed about its own run: a verdict that did not come back,
+an N/A demoted, a quote that could not be verified, a timestamp dropped. They
+render as muted "Scoring notes" under the card. Putting the second set in the
+first banner made a dropped verdict look as alarming as a coverage
+misstatement; keep them separate.
+
 **The model's own numeric scores are discarded.** `recomputeScores` derives
 everything: `met`=2, `partial`=1, `missed`=0, weighted by each criterion's
 units; section percentages combined through `sectionWeights`; the band from
@@ -190,6 +199,24 @@ far better score than they earned.
 `tests/rubric.test.ts` encodes all of this. The load-bearing case is
 *"attempting the call and failing beats never attempting it"* — if that ever
 goes red, the adaptivity is broken regardless of what else passes.
+
+#### Timestamps on a miss
+
+A `missed` verdict carries the moment the step **should** have happened:
+`timestamp` is that moment and `evidence` is the short verbatim line that
+opened the window — usually what the customer had just said. On a `met` or
+`partial` verdict the same two fields mean the opposite thing: proof the
+behavior happened. `ScorecardDetail` labels the quote block by status ("The
+window was here" vs "Heard on the call") because the two read identically
+otherwise, and a producer would take a missed-criterion quote as evidence that
+something happened.
+
+`verifyTimestamps` drops any stamp that is not `HH:MM:SS` or falls outside the
+call's measured clock bounds. This matters more here than on a met verdict: the
+model is being asked where something *should* have happened, with no quote
+anchoring the answer, so a plausible invented time is the obvious failure mode
+— and a reviewer who scrubs a recording to a time that does not exist stops
+trusting every other timestamp on the card.
 
 #### The rubric text
 

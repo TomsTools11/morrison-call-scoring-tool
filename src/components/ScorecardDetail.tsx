@@ -336,15 +336,37 @@ export function ScorecardDetail({
                               style={{
                                 padding: "12px 16px",
                                 background: "#F8FAFC",
-                                borderLeft: "3px solid #308ED6",
+                                borderLeft: `3px solid ${criterion.status === "missed" ? "#F0A93B" : "#308ED6"}`,
                                 borderRadius: "0 6px 6px 0",
-                                fontSize: 14,
-                                lineHeight: 1.6,
-                                fontStyle: "italic",
-                                color: "#2B3442",
                               }}
                             >
-                              “{criterion.evidence}”
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  letterSpacing: "0.1em",
+                                  textTransform: "uppercase",
+                                  color: criterion.status === "missed" ? "#B87613" : "#308ED6",
+                                  marginBottom: 6,
+                                }}
+                              >
+                                {criterion.status === "missed"
+                                  ? criterion.timestamp
+                                    ? `The window was here · ${criterion.timestamp}`
+                                    : "The window was here"
+                                  : "Heard on the call"}
+                              </div>
+                              <p
+                                style={{
+                                  margin: 0,
+                                  fontSize: 14,
+                                  lineHeight: 1.6,
+                                  fontStyle: "italic",
+                                  color: "#2B3442",
+                                }}
+                              >
+                                “{criterion.evidence}”
+                              </p>
                             </div>
                           )}
                           {criterion.note && (

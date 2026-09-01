@@ -87,6 +87,13 @@ loses.
 Every N/A on a scorecard carries a written reason, and the header says how much
 of the 100-point rubric actually counted.
 
+A **missed** criterion is timestamped too — not with proof it happened, but
+with the moment it should have: the point in the call where the window was
+open, and the line that opened it. A missed liability talk path points at the
+customer saying "I think I have full coverage"; a missed close points at where
+the price landed and the conversation moved on. Timestamps that are not real
+moments in the call are dropped rather than shown.
+
 ### Measuring accuracy
 
 `npm test` proves the applicability rules and the arithmetic — including the

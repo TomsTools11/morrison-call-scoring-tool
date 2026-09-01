@@ -101,6 +101,9 @@ export interface CallFacts {
 export interface TranscriptMeasures {
   /** null when the transcript carries no [HH:MM:SS] stamps. */
   elapsedSeconds: number | null;
+  /** Clock bounds of the call, used to reject a timestamp the model invented. */
+  firstStampSeconds: number | null;
+  lastStampSeconds: number | null;
   wordCount: number;
   turnCount: number;
   /** Percent of words spoken by the producer, or null if speakers are unlabelled. */
@@ -703,9 +706,12 @@ export function measureTranscript(
 
   const stamped = turns.map((t) => t.seconds).filter((s): s is number => s !== null);
   const hasTimestamps = stamped.length >= 2;
-  const elapsedSeconds = hasTimestamps
-    ? Math.max(...stamped) - Math.min(...stamped)
-    : null;
+  const firstStampSeconds = hasTimestamps ? Math.min(...stamped) : null;
+  const lastStampSeconds = hasTimestamps ? Math.max(...stamped) : null;
+  const elapsedSeconds =
+    firstStampSeconds !== null && lastStampSeconds !== null
+      ? lastStampSeconds - firstStampSeconds
+      : null;
 
   const labels = new Set(turns.map((t) => t.speaker).filter(Boolean));
   const hasSpeakerLabels = labels.size >= 2;
@@ -726,6 +732,8 @@ export function measureTranscript(
 
   return {
     elapsedSeconds,
+    firstStampSeconds,
+    lastStampSeconds,
     wordCount: turns.reduce((n, t) => n + t.words, 0),
     turnCount: turns.length,
     producerTalkShare,
@@ -1195,6 +1203,50 @@ export function verifyEvidence(sections: ScoredSection[], transcript: string): s
     }
   }
   return flags;
+}
+
+const CLOCK = /^(\d{2}):(\d{2}):(\d{2})$/;
+
+/**
+ * A timestamp has to point at a moment that exists in the call.
+ *
+ * This matters more for a `missed` verdict than a met one: the model is being
+ * asked where a step *should* have happened, and there is no quote anchoring
+ * the answer, so a plausible-looking invented time is the obvious failure mode.
+ * An unparseable or out-of-range stamp is dropped rather than shown, because a
+ * reviewer scrubbing a recording to a time that does not exist loses trust in
+ * every other timestamp on the card.
+ */
+export function verifyTimestamps(
+  sections: ScoredSection[],
+  measures: TranscriptMeasures,
+): string[] {
+  const diagnostics: string[] = [];
+
+  for (const section of sections) {
+    for (const c of section.criteria) {
+      if (!c.timestamp) continue;
+
+      const match = c.timestamp.trim().match(CLOCK);
+      const seconds = match
+        ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])
+        : null;
+
+      const inRange =
+        seconds !== null &&
+        measures.firstStampSeconds !== null &&
+        measures.lastStampSeconds !== null &&
+        seconds >= measures.firstStampSeconds &&
+        seconds <= measures.lastStampSeconds;
+
+      if (!inRange) {
+        c.timestamp = "";
+        diagnostics.push(`invalid_timestamp:${c.id}`);
+      }
+    }
+  }
+
+  return diagnostics;
 }
 
 /**
