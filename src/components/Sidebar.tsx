@@ -127,6 +127,8 @@ export function Sidebar({
                     borderRadius: 6,
                     cursor: "pointer",
                     color: "rgba(242,242,242,0.72)",
+                    // A section that did not apply must not read as a weak one.
+                    opacity: section.maxScore > 0 ? 1 : 0.55,
                     fontSize: 13,
                     lineHeight: 1.35,
                     fontFamily: "inherit",
@@ -142,7 +144,7 @@ export function Sidebar({
                       color: full ? "#3BEECA" : "rgba(242,242,242,0.5)",
                     }}
                   >
-                    {section.score}/{section.maxScore}
+                    {section.maxScore > 0 ? `${section.score}/${section.maxScore}` : "N/A"}
                   </span>
                 </button>
               );

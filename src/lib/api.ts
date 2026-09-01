@@ -1,4 +1,4 @@
-import type { CallContext, ScorecardResponse } from "../types";
+import type { CallFacts, ScorecardResponse } from "../types";
 
 /** Thrown for anything the user should read verbatim. */
 export class ApiError extends Error {}
@@ -51,17 +51,17 @@ export async function verifyPasscode(passcode: string): Promise<boolean> {
 export async function runContextPass(
   transcript: string,
   passcode: string,
-): Promise<{ context: CallContext } | { refusal: string; redFlags: string[] }> {
+): Promise<{ context: CallFacts } | { refusal: string; redFlags: string[] }> {
   const data = await postJson("/api/context", passcode, { transcript });
   if (data.error) {
     return { refusal: data.error as string, redFlags: (data.red_flags as string[]) || [] };
   }
-  return { context: data.context as CallContext };
+  return { context: data.context as CallFacts };
 }
 
 export async function runScoringPass(
   transcript: string,
-  context: CallContext,
+  context: CallFacts,
   producer: string,
   leadType: string,
   passcode: string,

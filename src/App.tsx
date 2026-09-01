@@ -10,9 +10,10 @@ import { Analyzing } from "./screens/Analyzing";
 import { Scorecard } from "./screens/Scorecard";
 import { ApiError, runContextPass, runScoringPass, verifyPasscode } from "./lib/api";
 import { readTranscriptFile, TranscriptFileError } from "./lib/transcript";
-import { loadHistory, saveScorecard } from "./lib/history";
+import { exportLabelledSet, loadHistory, saveOverrides, saveScorecard } from "./lib/history";
+import { recomputeScores } from "@/lib/rubric";
 import { formatCallDate } from "./lib/format";
-import type { HistoryEntry, ScorecardResponse, Screen } from "./types";
+import type { CriterionStatus, HistoryEntry, ScorecardResponse, Screen } from "./types";
 
 const STEPS = ["Reading call context", "Scoring against the Morrison rubric"];
 
@@ -38,8 +39,10 @@ export default function App() {
   const [stepDetail, setStepDetail] = useState("");
 
   const [scorecard, setScorecard] = useState<ScorecardResponse | null>(null);
+  const [entryId, setEntryId] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState<Record<number, boolean>>({});
   const [refusal, setRefusal] = useState("");
+  const [historyWarning, setHistoryWarning] = useState("");
 
   const mainRef = useRef<HTMLElement | null>(null);
 
@@ -136,8 +139,23 @@ export default function App() {
       setStep(STEPS.length);
       setScorecard(result);
       setOpenSections(defaultOpenState(result.sections));
-      saveScorecard(result);
+      const saved = saveScorecard(result);
+      setEntryId(saved.entry.id);
+      setHistoryWarning(
+        saved.persisted
+          ? ""
+          : "This scorecard could not be saved to history — the browser store is full.",
+      );
       setHistory(loadHistory());
+
+      // Nothing used to clear these, so the natural flow — score, "new
+      // scorecard", type the next producer's name, generate — silently
+      // re-scored the PREVIOUS transcript and filed it under the new name.
+      setFile(null);
+      setFileText("");
+      setFileWordCount(null);
+      setTranscriptText("");
+      setLeadType("");
       go("scorecard");
     } catch (error) {
       const message =
@@ -151,8 +169,66 @@ export default function App() {
 
   const handleOpenHistoryEntry = (entry: HistoryEntry) => {
     setScorecard(entry.scorecard);
+    setEntryId(entry.id);
+    setHistoryWarning("");
     setOpenSections(defaultOpenState(entry.scorecard.sections));
     go("scorecard");
+  };
+
+  /**
+   * A reviewer correcting a verdict. The score recomputes here rather than on
+   * the server — `lib/rubric` holds the arithmetic and imports nothing, so the
+   * browser can run exactly the same function the API route does.
+   *
+   * The machine verdict is kept alongside the correction, which is what turns
+   * a reviewed scorecard into a labelled example for calibration.
+   */
+  const handleOverride = (criterionId: string, status: CriterionStatus) => {
+    setScorecard((current) => {
+      if (!current) return current;
+
+      const overrides: Record<string, CriterionStatus> = {};
+      const sections = current.sections.map((section) => ({
+        ...section,
+        criteria: section.criteria.map((criterion) => {
+          const next =
+            criterion.id === criterionId
+              ? {
+                  ...criterion,
+                  machineStatus: criterion.machineStatus ?? criterion.status,
+                  status,
+                  // A reviewer marking something N/A is asserting it did not
+                  // apply, so it leaves the denominator the same way a
+                  // structural exclusion does.
+                  scope:
+                    status === "na" ? ("not_applicable" as const) : ("in_scope" as const),
+                  reason:
+                    status === "na"
+                      ? "Marked not applicable by the reviewer."
+                      : criterion.scope === "in_scope"
+                        ? criterion.reason
+                        : "",
+                }
+              : criterion;
+          const overridden = !!next.machineStatus && next.machineStatus !== next.status;
+          if (overridden) overrides[next.id] = next.status;
+          return { ...next, overridden };
+        }),
+      }));
+
+      const totals = recomputeScores(sections, current.amnesty ?? false);
+      const updated: ScorecardResponse = {
+        ...current,
+        sections,
+        overallScore: totals.overallScore,
+        gradeBand: totals.gradeBand,
+        scoredWeight: totals.scoredWeight,
+      };
+
+      if (entryId) saveOverrides(entryId, updated, overrides);
+      setHistory(loadHistory());
+      return updated;
+    });
   };
 
   const handleToggleSection = (index: number, open?: boolean) => {
@@ -169,15 +245,26 @@ export default function App() {
     if (main && element) main.scrollTop = Math.max(0, element.offsetTop - 24);
   };
 
-  const handleDownloadJson = () => {
-    if (!scorecard) return;
-    const blob = new Blob([JSON.stringify(scorecard, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
+  const download = (body: string, filename: string) => {
+    const url = URL.createObjectURL(new Blob([body], { type: "application/json" }));
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `scorecard-${scorecard.meta.producer || "call"}-${new Date().toISOString()}.json`;
+    anchor.download = filename;
     anchor.click();
     URL.revokeObjectURL(url);
+  };
+
+  /** The reviewed scorecards, as the calibration set for the eval harness. */
+  const handleExportLabelled = () => {
+    download(exportLabelledSet(), `morrison-labelled-set-${new Date().toISOString()}.json`);
+  };
+
+  const handleDownloadJson = () => {
+    if (!scorecard) return;
+    download(
+      JSON.stringify(scorecard, null, 2),
+      `scorecard-${scorecard.meta.producer || "call"}-${new Date().toISOString()}.json`,
+    );
   };
 
   if (!isAuthenticated) {
@@ -233,6 +320,7 @@ export default function App() {
               entries={history}
               onOpen={handleOpenHistoryEntry}
               onScoreNewCall={() => go("form")}
+              onExportLabelled={handleExportLabelled}
             />
           )}
 
@@ -258,11 +346,29 @@ export default function App() {
 
           {screen === "refused" && <NotASalesCall message={refusal} onBack={() => go("form")} />}
 
+          {screen === "scorecard" && historyWarning && (
+            <div
+              className="goal-no-print"
+              style={{
+                marginBottom: 20,
+                padding: "12px 16px",
+                background: "#FEF6EA",
+                border: "1px solid rgba(240,169,59,0.3)",
+                borderRadius: 8,
+                fontSize: 14,
+                color: "#B87613",
+              }}
+            >
+              {historyWarning}
+            </div>
+          )}
+
           {screen === "scorecard" && scorecard && (
             <Scorecard
               data={scorecard}
               openSections={openSections}
               onToggleSection={handleToggleSection}
+              onOverride={handleOverride}
             />
           )}
         </main>

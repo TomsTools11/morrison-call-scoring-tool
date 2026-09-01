@@ -1,4 +1,4 @@
-import { BarChart3 } from "lucide-react";
+import { BarChart3, Download } from "lucide-react";
 import { BandPill } from "../components/Pills";
 import { formatCallDate, humanize } from "../lib/format";
 import type { HistoryEntry } from "../types";
@@ -9,9 +9,16 @@ interface CallHistoryProps {
   entries: HistoryEntry[];
   onOpen: (entry: HistoryEntry) => void;
   onScoreNewCall: () => void;
+  onExportLabelled: () => void;
 }
 
-export function CallHistory({ entries, onOpen, onScoreNewCall }: CallHistoryProps) {
+export function CallHistory({
+  entries,
+  onOpen,
+  onScoreNewCall,
+  onExportLabelled,
+}: CallHistoryProps) {
+  const reviewed = entries.filter((e) => e.overrides && Object.keys(e.overrides).length > 0).length;
   return (
     <div data-screen-label="Call history" style={{ maxWidth: 1100 }}>
       <div
@@ -41,7 +48,7 @@ export function CallHistory({ entries, onOpen, onScoreNewCall }: CallHistoryProp
           }}
         >
           <span>Producer</span>
-          <span>Call</span>
+          <span>Scored</span>
           <span>Lead type</span>
           <span>Outcome</span>
           <span style={{ textAlign: "right" }}>Score</span>
@@ -90,7 +97,7 @@ export function CallHistory({ entries, onOpen, onScoreNewCall }: CallHistoryProp
                     textAlign: "right",
                   }}
                 >
-                  {Math.round(overallScore)}
+                  {overallScore === null ? "—" : Math.round(overallScore)}
                 </span>
                 <span style={{ justifySelf: "end" }}>
                   <BandPill band={gradeBand} bordered={false} />
@@ -100,8 +107,43 @@ export function CallHistory({ entries, onOpen, onScoreNewCall }: CallHistoryProp
           })
         )}
       </div>
-      <div style={{ marginTop: 16, fontSize: 13, color: "#6A7482" }}>
-        Scores are calculated against the Morrison rubric. History is stored in this browser only.
+      <div
+        style={{
+          marginTop: 16,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 20,
+        }}
+      >
+        <span style={{ fontSize: 13, color: "#6A7482" }}>
+          Scores are calculated against the Morrison rubric. History is stored in this browser only —
+          transcripts are not kept.
+        </span>
+        {reviewed > 0 && (
+          <button
+            onClick={onExportLabelled}
+            title="Every scorecard a reviewer has corrected, in the shape the eval harness reads"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "8px 12px",
+              background: "#FFFFFF",
+              border: "1px solid #D6DCE5",
+              borderRadius: 4,
+              fontSize: 13,
+              fontWeight: 500,
+              color: "#2B3442",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <Download size={14} strokeWidth={2} />
+            Export {reviewed} reviewed {reviewed === 1 ? "call" : "calls"}
+          </button>
+        )}
       </div>
     </div>
   );
