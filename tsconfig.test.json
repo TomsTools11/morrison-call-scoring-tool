@@ -1,0 +1,9 @@
+{
+  "//": "The tests import both the server core in lib/ and the browser-side transcript parser, so they need DOM types on top of the nodenext resolution the server config uses.",
+  "extends": "./tsconfig.server.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "noEmit": true
+  },
+  "include": ["tests", "scripts"]
+}

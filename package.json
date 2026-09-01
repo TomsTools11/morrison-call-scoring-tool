@@ -11,7 +11,9 @@
     "build": "tsc -p tsconfig.server.json --noEmit && vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist .vercel/output",
-    "lint": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit"
+    "lint": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "eval": "tsx scripts/eval.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -25,6 +27,7 @@
     "@types/react-dom": "^19.0.0",
     "@vercel/node": "^5.0.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "tsx": "^4.23.13",
     "typescript": "~5.8.2",
     "vite": "^6.2.3"
   }

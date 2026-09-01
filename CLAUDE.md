@@ -16,8 +16,13 @@ previously used bun; bun is not installed on the dev machine, and a stale
 | Build | `npm run build` — `vite build` |
 | Preview build | `npm run preview` |
 
-There are no tests and no test runner in this project. Verification is
-typecheck, build, and driving the UI in a browser.
+| Test | `npm test` — `tsx --test tests/*.test.ts`, no API calls, ~1s |
+| Eval | `npm run eval` — hits Gemini; see **Measuring accuracy** below |
+
+`npm test` covers the scoring core: which criteria a given call shape is
+eligible for, and the arithmetic over the verdicts. It is pure, so it runs
+without a key and without a server. Anything touching the model, the API routes
+or the UI is still verified by typecheck, build and a browser.
 
 `vercel dev` is the only way to run the API routes locally, because they are
 Vercel functions rather than an Express server. `vite dev` serves the frontend
@@ -50,12 +55,23 @@ text is sent, in a JSON body.
 The two passes are separate functions so each gets its own duration budget; one
 request holding both would risk the function limit on a long transcript.
 
+Pass 1 does more than classify the call. It also establishes `furthest_stage`,
+`stop_attribution`, `objection_phase` and `price_stated`, which are what the
+applicability layer gates on. Every field is an enum and every field is
+required, so a partial answer fails loudly instead of silently defaulting a
+gate that decides what gets graded.
+
 **Latency is high and variable.** Measured against a 3-minute sample call, the
 scoring pass ran 15s, 16s, 26s, 49s and 105s across five identical requests —
 model variance, not retries. `maxDuration` is set to 300 in `vercel.json` for
 both Gemini routes to stay clear of that tail. If a deploy rejects 300, the
 plan caps lower and the value has to come down; expect occasional timeouts if
 it does.
+
+**Sampling is pinned to `temperature: 0` in `generateContentWithRetry`.** This
+is a scoring tool; the same transcript has to produce the same score. At the
+default temperature it did not, and two identical requests could land in
+different grade bands with nothing to explain the difference to the producer.
 
 **`maxOutputTokens` is a combined thinking + output budget** on this model, and
 that is not obvious. At the original 8192, a long reasoning pass would consume
@@ -73,41 +89,163 @@ VTT/SRT keep their start timestamps and merge consecutive same-speaker cues, whi
 is what keeps the evidence timestamps in the scorecard populated. Adding a format
 means adding a branch there and an entry in `ACCEPTED_EXTENSIONS`.
 
+Three things in that file change *scores*, not just display, because several
+criteria are order-sensitive ("hold price to the end", "lead with liability"):
+
+- **The seconds-vs-milliseconds unit is decided once per file**, by
+  `numericDivisor`. Deciding it per row treated anything under 10,000 as
+  seconds, so a millisecond export stamped its first ten seconds hours into the
+  future and the timestamps ran backwards.
+- **`normalizeTimestamp` ends with a `HH:MM:SS` format guard.** An absolute
+  datetime also splits into three colon-separated parts, and passing it through
+  broke the `[HH:MM:SS]` contract every measurement depends on.
+- **`dropPhantomSpeakers` requires a speaker label to recur.** The inline
+  speaker match otherwise fires on an ordinary mid-sentence colon — Mike's own
+  "Just to confirm: is there anything…" became a speaker named "Just to
+  confirm", splitting the producer's most script-perfect turns onto a phantom
+  third party.
+
+The merged transcript ends with an `[HH:MM:SS] --- end of call ---` marker, so
+duration is the real end of the call rather than the start of the last turn.
+`measureTranscript` in `lib/rubric.ts` reads it and skips its words.
+
+**Duration, talk share and pace are computed, not asked of the model.** They
+used to be free-text model output rendered as measured numbers.
+
 ### Scoring
 
-**The model's own numeric scores are discarded.** `recomputeScores` in
-`lib/scoring.ts` recomputes everything: `met`=2, `partial`=1, `missed`=0, `na`
-excluded from the denominator; section percentages are combined using the
-hardcoded `sectionWeights` map; `gradeBand` comes from the 90/75/60 thresholds.
-Changing how calls are scored means editing that arithmetic and the weights map
-— not the prompt.
+The scoring core lives in **`lib/rubric.ts`**, and that file **imports
+nothing**. The browser pulls it in through the `@` alias so a reviewer's
+override recomputes the score locally, running exactly the function the API
+route runs. Adding an import there — `@google/genai` above all — drags the
+Gemini SDK into the client bundle.
 
-The rubric itself lives inline in the scoring prompt string in `lib/scoring.ts`.
+`lib/scoring.ts` holds the prompts, the response schemas and the Gemini calls.
+It imports `lib/rubric.ts`, never the reverse.
+
+**`RUBRIC` is the single source of truth.** One row per criterion with a stable
+id, its section, its weight in units, the minimum call stage it requires, and a
+predicate for when it structurally does not apply. Every downstream count —
+what the prompt asks for, what a section declares, what the arithmetic divides
+by — is derived from that table. Changing how calls are graded means editing
+`RUBRIC` and `sectionWeights`, not the prompt.
+
+**The scorecard is built from the plan, not from the model's reply.** The model
+returns a flat array of `{id, status, evidence}` and `assembleScorecard` merges
+it into the canonical section structure by id. That removes a whole class of
+defects at once: a dropped criterion can no longer shrink a section's
+denominator, an invented or duplicated section cannot take a default weight,
+and section names cannot drift out of the weight map. An in-scope criterion the
+model omits scores as a miss; an in-scope criterion it marks `na` is demoted to
+a miss and flagged. Both would otherwise raise the score.
+
+**The model's own numeric scores are discarded.** `recomputeScores` derives
+everything: `met`=2, `partial`=1, `missed`=0, weighted by each criterion's
+units; section percentages combined through `sectionWeights`; the band from
+`GRADE_BANDS`, applied to the **rounded** score so the number and the pill
+cannot disagree. A call with nothing gradeable returns `null` and
+`"Not Scored"`, never `0` and `"Off Script"`.
+
+#### Adaptivity — read this before touching `applicabilityFor` or `recomputeScores`
+
+Scoring adapts to how far a call actually got, so a call that never warranted a
+close is not docked for not closing. Three invariants make that safe rather
+than exploitable, and breaking any one of them turns the feature into a way to
+game the score:
+
+1. **Scope is a function of facts about the CALL, never of a verdict about the
+   producer.** Stage, line of business, direction, whether the customer
+   objected, measured duration. Two producers on structurally identical calls
+   face an identical in-scope set, so attempting can never score below not
+   attempting.
+2. **Call length never licenses an N/A.** There is deliberately no length term
+   in the amnesty condition. Only *stage not reached* excuses anything, and
+   only when the **customer** ended the call. Length feeds exactly one thing:
+   Mike's own "keep call over 10 minutes" criterion, graded in code.
+3. **Code may raise the detected stage, never lower it** (`applyStageFloor`).
+   A model that under-reports how far a call got is corrected by the
+   transcript; one that over-reports only makes grading stricter. Every failure
+   direction is "too harsh", never "silently forgiven".
+
+Two kinds of exclusion, which deliberately do not share arithmetic:
+
+- **Structural N/A** — line of business, direction, a bound outcome, no
+  objection raised. Nothing the producer could have changed, so the weight
+  renormalizes away.
+- **Stage not reached** — the weight renormalizes away when the customer
+  stopped the call (`CUSTOMER_STOPPED`), and is **conserved and charged at
+  zero** when the producer did, or when it is unclear.
+
+Stage is evaluated **before** structural N/A. Without that ordering, a call
+that never quoted would mark Coverage Auto "line not quoted" — structural, and
+so free — instead of "not reached", which is charged when the producer stalled
+the call. That ordering is worth 15 weight on every no-quote call.
+
+`normalizeFacts` forces `objection_phase` to at least `pre_quote` on a call
+that died at the intro. A customer who hangs up there has by definition
+objected, and without this the model can report "no objections" on a brush-off,
+drop the 15-weight Objection Handling section, and hand the producer who quit a
+far better score than they earned.
+
+`tests/rubric.test.ts` encodes all of this. The load-bearing case is
+*"attempting the call and failing beats never attempting it"* — if that ever
+goes red, the adaptivity is broken regardless of what else passes.
+
+#### The rubric text
+
+Roughly a third of the criteria name a behavior whose standard exists only in
+Mike's documents — "follow the correct talk path", "rotate the confirm pair",
+"never end an objection asking permission". The `SCRIPTS` block in
+`lib/scoring.ts` carries that text into the prompt; without it the model grades
+those criteria from generic sales knowledge instead of this agency's system.
+The per-criterion `standard` field on a `RUBRIC` row does the same job at a
+finer grain.
+
+Two details there are easy to get wrong and were wrong before:
+
+- **Asking for the customer's card is the correct close on this system**, not a
+  red flag. The rubric previously flagged it, so every successful close earned
+  a red flag.
+- **"Start at 250/500" and "match coverage to assets" are sequential, not
+  contradictory.** 250/500 is where the recommendation opens; raising it to
+  asset value satisfies the criterion rather than violating it.
 
 The Gemini model is pinned to `gemini-3.6-flash` inside
-`generateContentWithRetry` (`lib/gemini.ts`), which overwrites `config.model` on
-every call — setting `model` at a call site has no effect. That helper retries
-only 503/429/UNAVAILABLE with exponential backoff.
+`generateContentWithRetry` (`lib/gemini.ts`), which overwrites `config.model`
+on every call — setting `model` at a call site has no effect. That helper
+retries only 503/429/UNAVAILABLE with exponential backoff.
 
-Output size is a real constraint: the scoring prompt instructs the model to keep
-every string under 10 words because truncated JSON breaks the parse. See the
-token-budget note under **The pipeline** for the limits that enforce this, and
-`SCORING_ATTEMPTS` in `lib/scoring.ts` for the one retry that covers the
-remaining non-deterministic truncations.
+### Measuring accuracy
 
-**Section names are canonicalized before the weight lookup.** The rubric lists
-sections with qualifiers — "Coverage Review: Auto (Auto only)" — and the model
-echoes the qualifier back in the name. That name misses `sectionWeights` and
-silently takes the default weight of 10, so Coverage Review: Auto counted for 10
-instead of 15 on every score the tool produced before this was caught.
-`canonicalSectionName` strips the trailing parenthetical; leave it in place if
-you touch the weights map or the rubric text.
+There is no golden set yet. The harness is built so there can be one without
+extra work: a reviewer correcting a verdict on the scorecard recomputes the
+score live and stores the correction alongside the machine verdict, and
+**Export reviewed calls** on the history screen writes them out in the shape
+`npm run eval -- --labels` reads. The export carries the call facts and the
+transcript measurements, so every scorecard in it can be re-scored offline
+without another model call.
+
+`npm run eval -- --transcript path [--runs 5]` measures run-to-run variance
+against the live API. With `temperature: 0` the spread should be flat; anything
+above a few points means the score is not reproducible and is worth chasing
+before trusting any other number.
+
+Calibrating the 90/75/60 thresholds against real calls is then: run the
+labelled set, read the band confusion matrix, edit `GRADE_BANDS`.
 
 ### Frontend
 
-`ScorecardResponse` in `src/types.ts` mirrors the `/api/score` response shape by
-hand. Changing the server's response schema requires updating that interface,
-and vice versa.
+`ScorecardResponse` in `src/types.ts` imports its section and criterion shapes
+from `lib/rubric.ts` rather than re-declaring them, so the server's output and
+the frontend's expectation cannot drift apart. The envelope around them — meta,
+metrics, strengths, priorities — is still mirrored by hand against
+`api/score.ts`.
+
+Sections carry a `state` (`graded`, `not_applicable`, `not_reached`,
+`not_attempted`) and a code-written `stateReason`, and criteria carry a
+`reason` for every N/A. Those three non-graded states used to render
+identically as a bare em-dash while meaning completely different things to the
+person being coached, so keep them distinguishable in any UI change.
 
 Styling is plain CSS: GOAL design-system tokens in `src/index.css` plus React
 inline styles carrying literal design-system values. Tailwind and shadcn were
@@ -119,8 +257,21 @@ Call history is persisted to `localStorage` (`src/lib/history.ts`). It is
 per-browser: two people scoring calls on different machines do not see each
 other's runs. Moving to shared history means adding a real datastore.
 
+**The transcript is stripped before storage.** It is by far the largest field —
+a 40-minute call is ~50KB of text against ~4KB of verdicts — and it is what
+pushed the store over quota. A quota failure discards the whole write, so the
+scorecard the user had just produced would silently vanish from history; the
+failure is now surfaced in the UI rather than logged to the console. The
+transcript stays on the in-memory card and in the per-call JSON export.
+
 Grade-band pills key off the bands the server emits — `On System`, `Solid`,
-`Needs Work`, `Off Script` — matched case-insensitively in `src/lib/format.ts`.
+`Needs Work`, `Off Script`, plus `Not Scored` — matched case-insensitively in
+`src/lib/format.ts`.
+
+`ScorecardDetail` renders collapsed sections and evidence panels with the
+`hidden` attribute rather than omitting them, so the print stylesheet can
+reveal them. A printed scorecard previously dropped every clean section and
+every evidence quote, which is most of the point of handing one to a producer.
 
 The `@` path alias resolves to the **repo root**, not `src/` (in both
 `tsconfig.json` and `vite.config.ts`). API routes under `api/` use relative

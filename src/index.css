@@ -101,4 +101,11 @@ input, select, textarea, button { font-family: var(--font-sans); }
   }
   .goal-shell { display: block !important; height: auto !important; overflow: visible !important; }
   .goal-card { box-shadow: none !important; break-inside: avoid; }
+  /* A printed scorecard used to omit every collapsed section and every
+     evidence quote — the substantiation is the point of handing one to a
+     producer, so print reveals all of it regardless of the on-screen state. */
+  .goal-section-body[hidden],
+  .goal-evidence[hidden] { display: flex !important; }
+  .goal-section-body[hidden] { display: block !important; }
+  .goal-section { break-inside: avoid; }
 }

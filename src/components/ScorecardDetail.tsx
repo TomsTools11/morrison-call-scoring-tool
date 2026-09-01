@@ -1,14 +1,21 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, ListFilter } from "lucide-react";
+import { ChevronDown, ListFilter, RotateCcw } from "lucide-react";
 import { StatusDot, StatusPill } from "./Pills";
-import { barColor, pctWidth } from "../lib/format";
-import type { ScorecardResponse } from "../types";
+import { barColor, pctWidth, sectionScoreLabel } from "../lib/format";
+import type { CriterionStatus, ScorecardResponse } from "../types";
 
 type Sections = ScorecardResponse["sections"];
 type Criterion = Sections[number]["criteria"][number];
 
-/** N/A is not a miss — the criterion simply did not apply to this call. */
-const isMiss = (c: Criterion) => c.status === "missed" || c.status === "partial";
+/**
+ * A criterion the call was never eligible for is not a miss. `scope` is the
+ * authority; `status` is the fallback for scorecards saved before scope
+ * existed.
+ */
+const isGraded = (c: Criterion) => (c.scope ? c.scope === "in_scope" : c.status !== "na");
+const isMiss = (c: Criterion) => isGraded(c) && (c.status === "missed" || c.status === "partial");
+
+const OVERRIDE_OPTIONS: CriterionStatus[] = ["met", "partial", "missed", "na"];
 
 /**
  * Sections carrying something to coach on start open; a clean sheet stays
@@ -39,21 +46,26 @@ export function ScorecardDetail({
   sections,
   openSections,
   onToggleSection,
+  onOverride,
 }: {
   sections: Sections;
   openSections: Record<number, boolean>;
   onToggleSection: (index: number, open?: boolean) => void;
+  /** Set a criterion by hand. The score recomputes immediately. */
+  onOverride?: (criterionId: string, status: CriterionStatus) => void;
 }) {
   const [missesOnly, setMissesOnly] = useState(false);
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
 
   const totals = useMemo(() => {
-    const criteria = sections.reduce((n, s) => n + s.criteria.length, 0);
-    const missed = sections.reduce(
-      (n, s) => n + s.criteria.filter(isMiss).length,
-      0,
-    );
-    return { criteria, missed };
+    const all = sections.flatMap((s) => s.criteria);
+    const graded = all.filter(isGraded);
+    return {
+      graded: graded.length,
+      missed: graded.filter((c) => c.status === "missed").length,
+      partial: graded.filter((c) => c.status === "partial").length,
+      na: all.length - graded.length,
+    };
   }, [sections]);
 
   const allOpen = sections.every((_, index) => openSections[index]);
@@ -72,7 +84,7 @@ export function ScorecardDetail({
 
   return (
     <div
-      className="goal-card"
+      className="goal-card goal-detail"
       style={{
         background: "#FFFFFF",
         border: "1px solid #E3E8EF",
@@ -97,9 +109,9 @@ export function ScorecardDetail({
             Scorecard detail
           </h3>
           <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6A7482" }}>
-            {missesOnly
-              ? `${totals.missed} of ${totals.criteria} criteria not met · sections at full marks hidden`
-              : `${totals.criteria} criteria across ${sections.length} sections · click a row for evidence`}
+            {totals.missed} missed · {totals.partial} partial of {totals.graded} graded criteria
+            {totals.na > 0 ? ` · ${totals.na} did not apply` : ""}
+            {missesOnly ? " · sections with nothing to coach hidden" : " · click a row for evidence"}
           </p>
         </div>
         <div className="goal-no-print" style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -142,11 +154,32 @@ export function ScorecardDetail({
         </div>
       </div>
 
+      {missesOnly && (
+        <div
+          style={{
+            padding: "10px 24px",
+            background: "#FEF6EA",
+            borderBottom: "1px solid #E3E8EF",
+            fontSize: 13,
+            color: "#B87613",
+          }}
+        >
+          Filtered to misses only — criteria that were met are not shown.
+        </div>
+      )}
+
       {visible.map(({ section, index, rows }) => {
         const pct = pctWidth(section.score, section.maxScore);
         const isOpen = missesOnly ? true : !!openSections[index];
+        const gradedCount = section.criteria.filter(isGraded).length;
+        const partiallyGated = gradedCount > 0 && gradedCount < section.criteria.length;
         return (
-          <div key={section.name + index} id={`sec-${index}`} style={{ borderBottom: "1px solid #F1F1F1" }}>
+          <div
+            key={section.name + index}
+            id={`sec-${index}`}
+            className="goal-section"
+            style={{ borderBottom: "1px solid #F1F1F1" }}
+          >
             <button
               className="goal-hover-row"
               onClick={() => onToggleSection(index)}
@@ -163,40 +196,61 @@ export function ScorecardDetail({
                 fontFamily: "inherit",
               }}
             >
-              <span style={{ flex: 1, fontSize: 16, fontWeight: 700, color: "#0F1B2D" }}>
-                {section.name}
-              </span>
-              <span
-                style={{
-                  width: 140,
-                  height: 6,
-                  background: "#EFF2F7",
-                  borderRadius: 100,
-                  overflow: "hidden",
-                  flexShrink: 0,
-                }}
-              >
+              <span style={{ flex: 1, minWidth: 0 }}>
                 <span
                   style={{
                     display: "block",
-                    height: "100%",
-                    borderRadius: 100,
-                    background: barColor(pct),
-                    width: `${pct}%`,
+                    fontSize: 16,
+                    fontWeight: 700,
+                    color: section.state && section.state !== "graded" ? "#6A7482" : "#0F1B2D",
                   }}
-                />
+                >
+                  {section.name}
+                  {partiallyGated && (
+                    <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 500, color: "#6A7482" }}>
+                      ({gradedCount} of {section.criteria.length} graded)
+                    </span>
+                  )}
+                </span>
+                {section.stateReason && (
+                  <span style={{ display: "block", marginTop: 3, fontSize: 12, color: "#6A7482" }}>
+                    {section.stateReason}
+                  </span>
+                )}
               </span>
+              {section.maxScore > 0 && (
+                <span
+                  style={{
+                    width: 140,
+                    height: 6,
+                    background: "#EFF2F7",
+                    borderRadius: 100,
+                    overflow: "hidden",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "block",
+                      height: "100%",
+                      borderRadius: 100,
+                      background: barColor(pct),
+                      width: `${pct}%`,
+                    }}
+                  />
+                </span>
+              )}
               <span
                 style={{
-                  width: 64,
+                  minWidth: 64,
                   textAlign: "right",
-                  fontSize: 15,
-                  fontWeight: 800,
-                  color: "#0F1B2D",
+                  fontSize: section.state === "not_attempted" ? 12 : 15,
+                  fontWeight: section.state === "not_attempted" ? 600 : 800,
+                  color: section.state === "not_attempted" ? "#C13438" : "#0F1B2D",
                   flexShrink: 0,
                 }}
               >
-                {section.maxScore > 0 ? `${section.score}/${section.maxScore}` : "—"}
+                {sectionScoreLabel(section)}
               </span>
               <span
                 style={{
@@ -210,11 +264,11 @@ export function ScorecardDetail({
               </span>
             </button>
 
-            {isOpen && (
-              <div style={{ padding: "0 24px 8px" }}>
+            <div className="goal-section-body" hidden={!isOpen} style={{ padding: "0 24px 8px" }}>
                 {rows.map((criterion, rowIndex) => {
-                  const key = `${index}-${criterion.name}-${rowIndex}`;
+                  const key = `${index}-${criterion.id || criterion.name}-${rowIndex}`;
                   const rowOpen = !!openRows[key];
+                  const graded = isGraded(criterion);
                   return (
                     <div key={key} style={{ borderTop: "1px solid #F4F6FA" }}>
                       <button
@@ -239,10 +293,15 @@ export function ScorecardDetail({
                             flex: 1,
                             fontSize: 14,
                             fontWeight: 500,
-                            color: criterion.status === "na" ? "#6A7482" : "#0F1B2D",
+                            color: graded ? "#0F1B2D" : "#6A7482",
                           }}
                         >
                           {criterion.name}
+                          {criterion.overridden && (
+                            <span style={{ marginLeft: 8, fontSize: 11, color: "#057BE5" }}>
+                              adjusted
+                            </span>
+                          )}
                         </span>
                         <StatusPill status={criterion.status} />
                         <span
@@ -259,15 +318,19 @@ export function ScorecardDetail({
                         </span>
                       </button>
 
-                      {rowOpen && (
-                        <div
-                          style={{
-                            padding: "0 4px 16px 32px",
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 10,
-                          }}
-                        >
+                      <div
+                        className="goal-evidence"
+                        hidden={!rowOpen}
+                        style={{
+                          padding: "0 4px 16px 32px",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 10,
+                        }}
+                      >
+                          {criterion.reason && (
+                            <div style={{ fontSize: 13, color: "#6A7482" }}>{criterion.reason}</div>
+                          )}
                           {criterion.evidence && (
                             <div
                               style={{
@@ -287,13 +350,62 @@ export function ScorecardDetail({
                           {criterion.note && (
                             <div style={{ fontSize: 13, color: "#6A7482" }}>{criterion.note}</div>
                           )}
-                        </div>
-                      )}
+                          {onOverride && criterion.id && (
+                            <div
+                              className="goal-no-print"
+                              style={{ display: "flex", alignItems: "center", gap: 8 }}
+                            >
+                              <span style={{ fontSize: 12, color: "#6A7482" }}>
+                                Reviewer verdict:
+                              </span>
+                              {OVERRIDE_OPTIONS.map((option) => (
+                                <button
+                                  key={option}
+                                  onClick={() => onOverride(criterion.id, option)}
+                                  style={{
+                                    padding: "4px 10px",
+                                    borderRadius: 4,
+                                    fontSize: 12,
+                                    fontWeight: criterion.status === option ? 700 : 500,
+                                    fontFamily: "inherit",
+                                    cursor: "pointer",
+                                    background: criterion.status === option ? "#057BE5" : "#FFFFFF",
+                                    color: criterion.status === option ? "#FFFFFF" : "#2B3442",
+                                    border: `1px solid ${criterion.status === option ? "#057BE5" : "#D6DCE5"}`,
+                                  }}
+                                >
+                                  {option === "na" ? "N/A" : option}
+                                </button>
+                              ))}
+                              {criterion.overridden && criterion.machineStatus && (
+                                <button
+                                  onClick={() => onOverride(criterion.id, criterion.machineStatus!)}
+                                  title={`Restore the scored verdict (${criterion.machineStatus})`}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 5,
+                                    padding: "4px 8px",
+                                    borderRadius: 4,
+                                    fontSize: 12,
+                                    fontFamily: "inherit",
+                                    cursor: "pointer",
+                                    background: "#FFFFFF",
+                                    border: "1px solid #D6DCE5",
+                                    color: "#6A7482",
+                                  }}
+                                >
+                                  <RotateCcw size={12} strokeWidth={2} />
+                                  Reset
+                                </button>
+                              )}
+                            </div>
+                          )}
+                      </div>
                     </div>
                   );
                 })}
-              </div>
-            )}
+            </div>
           </div>
         );
       })}

@@ -3,7 +3,7 @@ import { BandPill, OutcomePill } from "../components/Pills";
 import { ScoreRing } from "../components/ScoreRing";
 import { ScorecardDetail } from "../components/ScorecardDetail";
 import { formatCallDate, humanize, parseTalkShare } from "../lib/format";
-import type { ScorecardResponse } from "../types";
+import type { CriterionStatus, ScorecardResponse } from "../types";
 
 const card: React.CSSProperties = {
   background: "#FFFFFF",
@@ -32,12 +32,18 @@ interface ScorecardProps {
   data: ScorecardResponse;
   openSections: Record<number, boolean>;
   onToggleSection: (index: number, open?: boolean) => void;
+  onOverride?: (criterionId: string, status: CriterionStatus) => void;
 }
 
-export function Scorecard({ data, openSections, onToggleSection }: ScorecardProps) {
-  const score = Math.round(data.overallScore);
-  const fullMarks = data.sections.filter((s) => s.maxScore > 0 && s.score === s.maxScore).length;
+export function Scorecard({ data, openSections, onToggleSection, onOverride }: ScorecardProps) {
+  const score = data.overallScore === null ? null : Math.round(data.overallScore);
+  const applicable = data.sections.filter((s) => s.maxScore > 0);
+  const fullMarks = applicable.filter((s) => s.score === s.maxScore).length;
   const agentShare = parseTalkShare(data.metrics?.talkShare);
+  // Sections the call never reached and the producer is not being charged for.
+  const gatedOff = data.sections.filter(
+    (s) => s.state === "not_applicable" || s.state === "not_reached",
+  );
 
   return (
     <div
@@ -135,15 +141,24 @@ export function Scorecard({ data, openSections, onToggleSection }: ScorecardProp
                   lineHeight: 1,
                 }}
               >
-                {score}
+                {score === null ? "—" : score}
               </span>
               <span style={{ fontSize: 18, fontWeight: 600, color: "#6A7482" }}>/100</span>
             </div>
             <div style={{ marginTop: 8 }}>
               <BandPill band={data.gradeBand} />
             </div>
+            {data.scoredWeight !== undefined && (
+              <div style={{ marginTop: 8, maxWidth: 300, fontSize: 12, lineHeight: 1.5, color: "#6A7482" }}>
+                Scored on {Math.round(data.scoredWeight)} of 100 available weight
+                {gatedOff.length > 0
+                  ? ` · ${gatedOff.length} ${gatedOff.length === 1 ? "section" : "sections"} did not apply to this call`
+                  : ""}
+                .
+              </div>
+            )}
           </div>
-          <ScoreRing score={score} />
+          <ScoreRing score={score ?? 0} band={data.gradeBand} />
         </div>
       </div>
 
@@ -151,6 +166,11 @@ export function Scorecard({ data, openSections, onToggleSection }: ScorecardProp
         <div className="goal-card" style={{ ...card, padding: "22px 24px" }}>
           <div style={metricLabel}>Duration</div>
           <div style={metricValue}>{data.metrics?.duration || "—"}</div>
+          {!data.metrics?.duration && (
+            <div style={{ marginTop: 8, fontSize: 12, color: "#6A7482" }}>
+              This transcript has no timestamps, so length could not be measured.
+            </div>
+          )}
         </div>
 
         <div className="goal-card" style={{ ...card, padding: "22px 24px" }}>
@@ -194,7 +214,7 @@ export function Scorecard({ data, openSections, onToggleSection }: ScorecardProp
             Done well
           </h3>
           <p style={{ margin: "0 0 18px", fontSize: 13, color: "#6A7482" }}>
-            {fullMarks} of {data.sections.length} sections at full marks
+            {fullMarks} of {applicable.length} scored sections at full marks
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {data.strengths.length === 0 ? (
@@ -323,6 +343,7 @@ export function Scorecard({ data, openSections, onToggleSection }: ScorecardProp
         sections={data.sections}
         openSections={openSections}
         onToggleSection={onToggleSection}
+        onOverride={onOverride}
       />
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0 0" }}>

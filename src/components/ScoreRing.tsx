@@ -1,7 +1,10 @@
+import { bandSwatch } from "../lib/format";
+
 const RADIUS = 45;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-export function ScoreRing({ score }: { score: number }) {
+/** The ring takes the band's colour so the largest graphic on the page can show failure. */
+export function ScoreRing({ score, band }: { score: number; band?: string }) {
   const fraction = Math.max(0, Math.min(100, score)) / 100;
   const dash = `${Math.round(CIRCUMFERENCE * fraction)} ${Math.round(CIRCUMFERENCE)}`;
   return (
@@ -12,7 +15,7 @@ export function ScoreRing({ score }: { score: number }) {
         cy="52"
         r={RADIUS}
         fill="none"
-        stroke="#057BE5"
+        stroke={band ? bandSwatch(band).fg : "#057BE5"}
         strokeWidth="10"
         strokeLinecap="round"
         strokeDasharray={dash}

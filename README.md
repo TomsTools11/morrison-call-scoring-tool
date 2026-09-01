@@ -25,8 +25,10 @@ npm run dev                  # vercel dev — needs the Vercel CLI and `vercel l
 | Command | What it does |
 |---|---|
 | `npm run dev` | `vercel dev` — frontend plus the real API routes |
-| `npm run lint` | `tsc --noEmit` |
-| `npm run build` | `vite build` |
+| `npm run lint` | typechecks the app, the server functions and the tests |
+| `npm test` | the scoring core — pure, no API key, about a second |
+| `npm run build` | `vite build`, behind the server typecheck |
+| `npm run eval` | measures scoring variance and agreement (see below) |
 
 `vite dev` alone will serve the UI but every `/api/*` call 404s, because the
 API is Vercel functions rather than a standalone server.
@@ -58,19 +60,48 @@ expect occasional timeouts on the slow tail if so.
 Two serverless functions, split so each Gemini call gets its own duration
 budget:
 
-1. `POST /api/context` — establishes whether this is a sales call, its
-   direction, lead type, lines quoted, and outcome. A non-sales call stops here
-   and is refused rather than scored.
-2. `POST /api/score` — grades every rubric criterion, then the server discards
-   the model's own numbers and recomputes the score itself.
+1. `POST /api/context` — establishes what kind of call this is and, crucially,
+   **how far it got**: the stage it reached, who ended it, whether a price was
+   ever stated, and whether the customer objected. A call with nothing to grade
+   stops here and is refused rather than scored.
+2. `POST /api/score` — decides in code which criteria this call was eligible
+   for, asks the model to grade only those, then discards the model's numbers
+   and recomputes the score itself.
 
-That recompute is the scoring: `met`=2, `partial`=1, `missed`=0, `na` excluded
-from the denominator, section percentages combined through a fixed weights map,
-and the grade band from the 90 / 75 / 60 thresholds. Changing how calls are
-scored means editing that arithmetic in `lib/scoring.ts` — not the prompt.
+That recompute is the scoring: `met`=2, `partial`=1, `missed`=0, weighted per
+criterion, section percentages combined through a fixed weights map, and the
+grade band from the 90 / 75 / 60 thresholds. Changing how calls are scored
+means editing the `RUBRIC` table and `sectionWeights` in `lib/rubric.ts` — not
+the prompt.
+
+### Scoring adapts to the call
+
+A call that never warranted a closing attempt is not docked for not closing.
+Criteria belonging to stages the call never reached drop out of the denominator
+when the **customer** ended the call — and are charged at zero when the
+**producer** did. Call length never forgives anything on its own; only the
+stage reached does. That asymmetry is deliberate: without it, an agent who
+hangs up at the first "no" would outscore one who works the objection and
+loses.
+
+Every N/A on a scorecard carries a written reason, and the header says how much
+of the 100-point rubric actually counted.
+
+### Measuring accuracy
+
+`npm test` proves the applicability rules and the arithmetic — including the
+case that an agent who tries and fails always outscores one who never tries.
+
+There is no set of human-scored calls yet. When there is, it accumulates for
+free: correcting a verdict on a scorecard recomputes the score live and records
+the correction next to the machine's, and **Export reviewed calls** on the
+history screen writes them out for `npm run eval -- --labels <file>`, which
+reports per-criterion agreement, section error and a grade-band confusion
+matrix. `npm run eval -- --transcript <file>` measures run-to-run variance
+against the live API.
 
 Call history is kept in `localStorage`, so it is per-browser and not shared
-across machines.
+across machines. Transcripts are not stored — only the scorecard.
 
 `CLAUDE.md` carries the fuller architecture notes, including the token-budget
 and section-weight constraints that are easy to reintroduce by accident.
